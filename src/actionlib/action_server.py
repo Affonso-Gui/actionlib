@@ -89,6 +89,8 @@ class ActionServer:
 
         self.goal_sub = None
         self.cancel_sub = None
+        self.interrupt_sub = None
+        self.resume_sub = None
         self.status_pub = None
         self.result_pub = None
         self.feedback_pub = None
@@ -98,6 +100,7 @@ class ActionServer:
         self.status_timer = None
 
         self.status_list = []
+        self.interrupt_list = []
 
         self.last_cancel = rospy.Time()
         self.status_list_timeout = rospy.Duration()
@@ -149,6 +152,10 @@ class ActionServer:
         self.goal_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/goal", self.ActionGoal, callback=self.internal_goal_callback, queue_size=self.sub_queue_size)
 
         self.cancel_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/cancel", GoalID, callback=self.internal_cancel_callback, queue_size=self.sub_queue_size)
+
+        self.interrupt_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/interrupt", GoalID, callback=self.internal_interrupt_callback, queue_size=self.sub_queue_size)
+
+        self.resume_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/resume", GoalID, callback=self.internal_resume_callback, queue_size=self.sub_queue_size)
 
         # read the frequency with which to publish status from the parameter server
         # if not specified locally explicitly, use search param to find actionlib_status_frequency
@@ -247,6 +254,86 @@ class ActionServer:
             # make sure to set last_cancel_ based on the stamp associated with this cancel request
             if goal_id.stamp > self.last_cancel:
                 self.last_cancel = goal_id.stamp
+
+    ## @brief  The ROS callback for interrupt requests coming into the ActionServer
+    def internal_interrupt_callback(self, goal_id):
+        with self.lock:
+
+            # if we're not started... then we're not actually going to do anything
+            if not self.started:
+                return
+
+            # we need to handle a cancel for the user
+            rospy.logdebug("The action server has received a new interrupt request")
+
+            goal_id_found = False
+            for st in self.status_list[:]:
+                # check if the goal id is zero or if it is equal to the goal id of
+                # the iterator or if the time of the iterator warrants a cancel
+
+                cancel_everything = (goal_id.id == "" and goal_id.stamp == rospy.Time())   # rospy::Time()) #id and stamp 0 --> cancel everything
+                cancel_this_one = (goal_id.id == st.status.goal_id.id)   # ids match... cancel that goal
+                cancel_before_stamp = (goal_id.stamp != rospy.Time() and st.status.goal_id.stamp <= goal_id.stamp)  # //stamp != 0 --> cancel everything before stamp
+
+                if cancel_everything or cancel_this_one or cancel_before_stamp:
+                    # we need to check if we need to store this cancel request for later
+                    if goal_id.id == st.status.goal_id.id:
+                        goal_id_found = True
+
+                    # attempt to get the handle_tracker for the list item if it exists
+                    handle_tracker = st.handle_tracker
+
+                    if handle_tracker is None:
+                        # if the handle tracker is expired, then we need to create a new one
+                        handle_tracker = HandleTrackerDeleter(self, st)
+                        st.handle_tracker = handle_tracker
+
+                        # we also need to reset the time that the status is supposed to be removed from the list
+                        st.handle_destruction_time = rospy.Time.now()
+
+                    # set the status of the goal to PREEMPTING or RECALLING as approriate
+                    # and check if the request should be passed on to the user
+                    gh = ServerGoalHandle(st, self, handle_tracker)
+                    if gh.set_cancel_requested():
+                        # call the user's cancel callback on the relevant goal
+                        self.cancel_callback(gh)
+
+                    self.interrupt_list.append(st)
+
+            # if the requested goal_id was not found, and it is non-zero, then we need to store the cancel request
+            if goal_id.id != "" and not goal_id_found:
+                tracker = StatusTracker(goal_id, GoalStatus.RECALLING)
+                self.status_list.append(tracker)
+                # start the timer for how long the status will live in the list without a goal handle to it
+                tracker.handle_destruction_time = rospy.Time.now()
+
+            # make sure to set last_cancel_ based on the stamp associated with this cancel request
+            if goal_id.stamp > self.last_cancel:
+                self.last_cancel = goal_id.stamp
+
+    ## @brief  The ROS callback for resume requests coming into the ActionServer
+    def internal_resume_callback(self, goal_id):
+        with self.lock:
+
+            # if we're not started... then we're not actually going to do anything
+            if not self.started:
+                return
+
+            # we need to handle a cancel for the user
+            rospy.logdebug("The action server has received a resume request")
+
+            for st in self.interrupt_list[:]:
+                # check if the goal id is zero or if it is equal to the goal id of
+                # the iterator or if the time of the iterator warrants a cancel
+
+                cancel_everything = (goal_id.id == "" and goal_id.stamp == rospy.Time())   # rospy::Time()) #id and stamp 0 --> cancel everything
+                cancel_this_one = (goal_id.id == st.status.goal_id.id)   # ids match... cancel that goal
+                cancel_before_stamp = (goal_id.stamp != rospy.Time() and st.status.goal_id.stamp <= goal_id.stamp)  # //stamp != 0 --> cancel everything before stamp
+
+                if cancel_everything or cancel_this_one or cancel_before_stamp:
+                    msg = self.ActionGoal(goal = st.goal.goal)
+                    self.interrupt_list.remove(st)
+                    self.internal_goal_callback(msg)
 
     ## @brief  The ROS callback for goals coming into the ActionServer
     def internal_goal_callback(self, goal):
