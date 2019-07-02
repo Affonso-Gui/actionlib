@@ -167,7 +167,7 @@ private:
 
   ros::NodeHandle node_;
 
-  ros::Subscriber goal_sub_, cancel_sub_;
+  ros::Subscriber goal_sub_, cancel_sub_, interrupt_sub_, resume_sub_;
   ros::Publisher status_pub_, result_pub_, feedback_pub_;
 
   ros::Timer status_timer_;

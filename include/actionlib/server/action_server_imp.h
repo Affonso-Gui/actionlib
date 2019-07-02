@@ -181,6 +181,14 @@ void ActionServer<ActionSpec>::initialize()
   cancel_sub_ =
     node_.subscribe<actionlib_msgs::GoalID>("cancel", static_cast<uint32_t>(sub_queue_size),
       boost::bind(&ActionServerBase<ActionSpec>::cancelCallback, this, _1));
+
+  interrupt_sub_ =
+    node_.subscribe<actionlib_msgs::GoalID>("interrupt", static_cast<uint32_t>(sub_queue_size),
+      boost::bind(&ActionServerBase<ActionSpec>::interruptCallback, this, _1));
+
+  resume_sub_ =
+    node_.subscribe<actionlib_msgs::GoalID>("resume", static_cast<uint32_t>(sub_queue_size),
+      boost::bind(&ActionServerBase<ActionSpec>::resumeCallback, this, _1));
 }
 
 template<class ActionSpec>
