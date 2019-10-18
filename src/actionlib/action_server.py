@@ -322,18 +322,20 @@ class ActionServer:
             # we need to handle a cancel for the user
             rospy.logdebug("The action server has received a resume request")
 
-            for st in self.interrupt_list[:]:
+            for i,st in reversed(list(enumerate(self.interrupt_list))):
                 # check if the goal id is zero or if it is equal to the goal id of
                 # the iterator or if the time of the iterator warrants a cancel
 
-                cancel_everything = (goal_id.id == "" and goal_id.stamp == rospy.Time())   # rospy::Time()) #id and stamp 0 --> cancel everything
-                cancel_this_one = (goal_id.id == st.status.goal_id.id)   # ids match... cancel that goal
-                cancel_before_stamp = (goal_id.stamp != rospy.Time() and st.status.goal_id.stamp <= goal_id.stamp)  # //stamp != 0 --> cancel everything before stamp
+                resume_any = (goal_id.id == "" and goal_id.stamp == rospy.Time())   # rospy::Time()) #id and stamp 0 -->  resume first goal
+                resume_this_one = (goal_id.id == st.status.goal_id.id)   # ids match... resume that goal
+                resume_before_stamp = (goal_id.stamp != rospy.Time() and st.status.goal_id.stamp <= goal_id.stamp)  # //stamp != 0 --> resume first goal before stamp
 
-                if cancel_everything or cancel_this_one or cancel_before_stamp:
+                if resume_any or resume_this_one or resume_before_stamp:
                     msg = self.ActionGoal(goal = st.goal.goal)
-                    self.interrupt_list.remove(st)
+                    self.interrupt_list = self.interrupt_list[:i-1]
                     self.internal_goal_callback(msg)
+                    # can only resume one command
+                    break
 
     ## @brief  The ROS callback for goals coming into the ActionServer
     def internal_goal_callback(self, goal):
