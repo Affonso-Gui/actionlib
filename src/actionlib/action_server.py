@@ -30,6 +30,7 @@
 # Based on C++ action_server.h by Eitan Marder-Eppstein
 import rospy
 import threading
+from std_srvs.srv import Empty, EmptyResponse
 
 from actionlib_msgs.msg import GoalID, GoalStatus, GoalStatusArray
 
@@ -152,6 +153,11 @@ class ActionServer:
         self.goal_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/goal", self.ActionGoal, callback=self.internal_goal_callback, queue_size=self.sub_queue_size)
 
         self.cancel_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/cancel", GoalID, callback=self.internal_cancel_callback, queue_size=self.sub_queue_size)
+
+        self.print_interrupt_srv = rospy.Service(
+            rospy.remap_name(self.ns)+"/interrupt_list",
+            Empty,
+            self.print_interrupt)
 
         self.interrupt_sub = rospy.Subscriber(rospy.remap_name(self.ns)+"/interrupt", GoalID, callback=self.internal_interrupt_callback, queue_size=self.sub_queue_size)
 
@@ -310,6 +316,12 @@ class ActionServer:
             # make sure to set last_cancel_ based on the stamp associated with this cancel request
             if goal_id.stamp > self.last_cancel:
                 self.last_cancel = goal_id.stamp
+
+    def print_interrupt(self, msg):
+        print "length: {}".format(len(self.interrupt_list))
+        for x in self.interrupt_list:
+            print x.status.goal_id
+        return EmptyResponse()
 
     ## @brief  The ROS callback for resume requests coming into the ActionServer
     def internal_resume_callback(self, goal_id):
